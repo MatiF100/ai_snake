@@ -1,5 +1,8 @@
 use raylib::prelude::*;
 
+// The following snake game implementation
+// Is based on official raylib example
+// Original code at: https://github.com/raysan5/raylib-games/blob/master/classics/src/snake.c
 const SNAKE_LEN: usize = 256;
 const SQUARE_SIZE: usize = 31;
 
@@ -97,7 +100,7 @@ fn main() {
         .title("Test")
         .build();
 
-    let mut game_state = GameState::init(450, 600);
+    let mut game_state = GameState::init(450, 400);
 
     rl.set_target_fps(60);
 
@@ -184,36 +187,46 @@ fn update_game(state: &mut GameState, rl: &mut RaylibHandle) {
         }
 
         if !state.pause {
-            match rl.get_key_pressed() {
-                Some(KeyboardKey::KEY_RIGHT) => {
-                    state.snake[0].speed = Vector2 {
-                        x: SQUARE_SIZE as f32,
-                        y: 0.0,
-                    };
-                    state.allow_move = false;
+            if state.allow_move {
+                match rl.get_key_pressed() {
+                    Some(KeyboardKey::KEY_RIGHT) => {
+                        if state.snake[0].speed.x == 0.0 {
+                            state.snake[0].speed = Vector2 {
+                                x: SQUARE_SIZE as f32,
+                                y: 0.0,
+                            };
+                        }
+                        state.allow_move = false;
+                    }
+                    Some(KeyboardKey::KEY_LEFT) => {
+                        if state.snake[0].speed.x == 0.0 {
+                            state.snake[0].speed = Vector2 {
+                                x: -(SQUARE_SIZE as f32),
+                                y: 0.0,
+                            };
+                        }
+                        state.allow_move = false;
+                    }
+                    Some(KeyboardKey::KEY_DOWN) => {
+                        if state.snake[0].speed.y == 0.0 {
+                            state.snake[0].speed = Vector2 {
+                                x: 0.0,
+                                y: SQUARE_SIZE as f32,
+                            };
+                        }
+                        state.allow_move = false;
+                    }
+                    Some(KeyboardKey::KEY_UP) => {
+                        if state.snake[0].speed.y == 0.0 {
+                            state.snake[0].speed = Vector2 {
+                                x: 0.0,
+                                y: -(SQUARE_SIZE as f32),
+                            };
+                        }
+                        state.allow_move = false;
+                    }
+                    _ => (),
                 }
-                Some(KeyboardKey::KEY_LEFT) => {
-                    state.snake[0].speed = Vector2 {
-                        x: -(SQUARE_SIZE as f32),
-                        y: 0.0,
-                    };
-                    state.allow_move = false;
-                }
-                Some(KeyboardKey::KEY_DOWN) => {
-                    state.snake[0].speed = Vector2 {
-                        x: 0.0,
-                        y: SQUARE_SIZE as f32,
-                    };
-                    state.allow_move = false;
-                }
-                Some(KeyboardKey::KEY_UP) => {
-                    state.snake[0].speed = Vector2 {
-                        x: 0.0,
-                        y: -(SQUARE_SIZE as f32),
-                    };
-                    state.allow_move = false;
-                }
-                _ => (),
             }
 
             for i in 0..state.counter_tail {
@@ -245,48 +258,54 @@ fn update_game(state: &mut GameState, rl: &mut RaylibHandle) {
             if !state.fruit.active {
                 state.fruit.active = true;
                 state.fruit.position = Vector2 {
-                    x: get_random_value::<i32>(
-                        0,
-                        (((state.screen_width / SQUARE_SIZE - 1) * SQUARE_SIZE) as f32
-                            + state.offset.x / 2.0) as i32,
-                    ) as f32,
-                    y: get_random_value::<i32>(
-                        0,
-                        (((state.screen_width / SQUARE_SIZE - 1) * SQUARE_SIZE) as f32
-                            + state.offset.x / 2.0) as i32,
-                    ) as f32,
+                    x: (get_random_value::<f64>(0, (state.screen_width / SQUARE_SIZE - 1) as i32)
+                        * SQUARE_SIZE as f64
+                        + (state.offset.x / 2.0) as f64)
+                        .trunc() as f32,
+                    y: (get_random_value::<f64>(0, (state.screen_height / SQUARE_SIZE - 1) as i32)
+                        * SQUARE_SIZE as f64
+                        + (state.offset.y / 2.0) as f64)
+                        .trunc() as f32,
                 };
 
                 for mut i in 0..state.counter_tail {
                     while state.fruit.position == state.snake[i].position {
                         state.fruit.position = Vector2 {
-                            x: get_random_value::<i32>(
+                            x: (get_random_value::<f64>(
                                 0,
-                                (((state.screen_width / SQUARE_SIZE - 1) * SQUARE_SIZE) as f32
-                                    + state.offset.x / 2.0) as i32,
-                            ) as f32,
-                            y: get_random_value::<i32>(
+                                (state.screen_width / SQUARE_SIZE - 1) as i32,
+                            ) * SQUARE_SIZE as f64
+                                + (state.offset.x / 2.0) as f64)
+                                .trunc() as f32,
+                            y: (get_random_value::<f64>(
                                 0,
-                                (((state.screen_width / SQUARE_SIZE - 1) * SQUARE_SIZE) as f32
-                                    + state.offset.x / 2.0) as i32,
-                            ) as f32,
+                                (state.screen_height / SQUARE_SIZE - 1) as i32,
+                            ) * SQUARE_SIZE as f64
+                                + (state.offset.y / 2.0) as f64)
+                                .trunc() as f32,
                         };
                         i = 0;
                     }
                 }
             }
 
-            if state.snake[0].position.x < state.fruit.position.x + state.fruit.size.x && state.snake[0].position.x + state.snake[0].size.x > state.fruit.position.x
-            && state.snake[0].position.y < state.fruit.position.y + state.fruit.size.y && state.snake[0].position.y + state.snake[0].size.y > state.fruit.position.y{
-                state.snake[state.counter_tail].position = state.snake_position[state.counter_tail - 1];
+            if state.snake[0].position.x < state.fruit.position.x + state.fruit.size.x
+                && state.snake[0].position.x + state.snake[0].size.x > state.fruit.position.x
+                && state.snake[0].position.y < state.fruit.position.y + state.fruit.size.y
+                && state.snake[0].position.y + state.snake[0].size.y > state.fruit.position.y
+            {
+                state.snake[state.counter_tail].position =
+                    state.snake_position[state.counter_tail - 1];
                 state.counter_tail += 1;
                 state.fruit.active = false;
             }
 
             state.frames_counter += 1;
         }
-    }else if rl.is_key_pressed(KeyboardKey::KEY_ENTER){
-            *state = GameState::init(rl.get_screen_height() as usize,rl.get_screen_width() as usize);
-        }
-
+    } else if rl.is_key_pressed(KeyboardKey::KEY_ENTER) {
+        *state = GameState::init(
+            rl.get_screen_height() as usize,
+            (rl.get_screen_width() / 2) as usize,
+        );
+    }
 }

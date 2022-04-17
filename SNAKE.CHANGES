@@ -1,0 +1,4 @@
+Licence for original source code available in file SNAKE.LICENSE
+Changes to original code:
+- Rewritten in Rust (RIIR)
+- Adaptation for neural network integration
