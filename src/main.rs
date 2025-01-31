@@ -162,7 +162,7 @@ fn draw_game(state: &GameState, rl: &mut RaylibHandle, thread: &RaylibThread) {
         if state.pause {
             context.draw_text(
                 "GAME PAUSED",
-                (state.screen_width / 2 - measure_text("GAME PAUSED", 40) as usize) as i32,
+                (state.screen_width / 2 - context.measure_text("GAME PAUSED", 40) as usize) as i32,
                 (state.screen_height / 2) as i32 - 40,
                 40,
                 Color::GRAY,
@@ -172,7 +172,7 @@ fn draw_game(state: &GameState, rl: &mut RaylibHandle, thread: &RaylibThread) {
         let msg = "PRESS [ENTER] TO PLAY AGAIN";
         context.draw_text(
             msg,
-            (state.screen_width / 2) as i32 - measure_text(msg, 20) / 2,
+            (state.screen_width / 2) as i32 - context.measure_text(msg, 20) / 2,
             (state.screen_height / 2 - 40) as i32,
             40,
             Color::GRAY,
@@ -182,10 +182,8 @@ fn draw_game(state: &GameState, rl: &mut RaylibHandle, thread: &RaylibThread) {
 
 fn update_game(state: &mut GameState, rl: &mut RaylibHandle) {
     if !state.game_over {
-        if rl.is_key_pressed(KeyboardKey::KEY_P) {
-            state.pause = !state.pause;
-        }
 
+        state.game_over = false;
         if !state.pause {
             if state.allow_move {
                 match rl.get_key_pressed() {
@@ -233,7 +231,7 @@ fn update_game(state: &mut GameState, rl: &mut RaylibHandle) {
                 state.snake_position[i] = state.snake[i].position;
             }
 
-            if state.frames_counter % 5 == 0 {
+            if state.frames_counter % 10 == 0 {
                 state.snake[0].position += state.snake[0].speed;
                 state.allow_move = true;
                 for i in 1..state.counter_tail {
@@ -258,11 +256,13 @@ fn update_game(state: &mut GameState, rl: &mut RaylibHandle) {
             if !state.fruit.active {
                 state.fruit.active = true;
                 state.fruit.position = Vector2 {
-                    x: (get_random_value::<f64>(0, (state.screen_width / SQUARE_SIZE - 1) as i32)
+                    x: (rl
+                        .get_random_value::<f64>(0..(state.screen_width / SQUARE_SIZE - 1) as i32)
                         * SQUARE_SIZE as f64
                         + (state.offset.x / 2.0) as f64)
                         .trunc() as f32,
-                    y: (get_random_value::<f64>(0, (state.screen_height / SQUARE_SIZE - 1) as i32)
+                    y: (rl
+                        .get_random_value::<f64>(0..(state.screen_height / SQUARE_SIZE - 1) as i32)
                         * SQUARE_SIZE as f64
                         + (state.offset.y / 2.0) as f64)
                         .trunc() as f32,
@@ -271,15 +271,13 @@ fn update_game(state: &mut GameState, rl: &mut RaylibHandle) {
                 for mut i in 0..state.counter_tail {
                     while state.fruit.position == state.snake[i].position {
                         state.fruit.position = Vector2 {
-                            x: (get_random_value::<f64>(
-                                0,
-                                (state.screen_width / SQUARE_SIZE - 1) as i32,
+                            x: (rl.get_random_value::<f64>(
+                                0..(state.screen_width / SQUARE_SIZE - 1) as i32,
                             ) * SQUARE_SIZE as f64
                                 + (state.offset.x / 2.0) as f64)
                                 .trunc() as f32,
-                            y: (get_random_value::<f64>(
-                                0,
-                                (state.screen_height / SQUARE_SIZE - 1) as i32,
+                            y: (rl.get_random_value::<f64>(
+                                0..(state.screen_height / SQUARE_SIZE - 1) as i32,
                             ) * SQUARE_SIZE as f64
                                 + (state.offset.y / 2.0) as f64)
                                 .trunc() as f32,
