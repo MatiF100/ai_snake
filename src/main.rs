@@ -1,3 +1,5 @@
+use std::borrow::BorrowMut;
+
 use raylib::prelude::*;
 
 // The following snake game implementation
@@ -22,11 +24,30 @@ struct Food {
     color: Color,
 }
 
-struct GameState {
-    screen_width: usize,
-    screen_height: usize,
+enum Move {
+    FW,
+    BW,
+    LT,
+    RT,
+    PS,
+}
+enum Mode {
+    Windowed {
+        screen_width: usize,
+        screen_height: usize,
+        frames_counter: usize,
 
-    frames_counter: usize,
+        allow_move: bool,
+        offset: Vector2,
+    },
+    Standalone {
+        moves: std::sync::mpsc::Receiver<Move>,
+    },
+}
+
+struct GameState {
+    game_mode: Mode,
+
     game_over: bool,
     pause: bool,
 
@@ -34,8 +55,6 @@ struct GameState {
     snake: [Snake; SNAKE_LEN],
     snake_position: [Vector2; SNAKE_LEN],
 
-    allow_move: bool,
-    offset: Vector2,
     counter_tail: usize,
 }
 
@@ -43,7 +62,7 @@ impl GameState {
     fn init(screen_height: usize, screen_width: usize) -> Self {
         let mut snake_arr = [Snake::default(); SNAKE_LEN];
 
-        for mut snake_part in &mut snake_arr {
+        for snake_part in &mut snake_arr {
             snake_part.position = Vector2 {
                 x: (screen_width % SQUARE_SIZE / 2) as f32,
                 y: (screen_height % SQUARE_SIZE / 2) as f32,
@@ -62,20 +81,22 @@ impl GameState {
         snake_arr[0].color = Color::DARKBLUE;
 
         Self {
-            screen_height,
-            screen_width,
+            game_mode: Mode::Windowed {
+                screen_width,
+                screen_height,
+                frames_counter: 0,
+                allow_move: false,
+                offset: Vector2 {
+                    x: (screen_width % SQUARE_SIZE) as f32,
+                    y: (screen_height % SQUARE_SIZE) as f32,
+                },
+            },
 
-            frames_counter: 0,
             game_over: false,
             pause: false,
 
             counter_tail: 1,
-            allow_move: false,
 
-            offset: Vector2 {
-                x: (screen_width % SQUARE_SIZE) as f32,
-                y: (screen_height % SQUARE_SIZE) as f32,
-            },
             fruit: Food {
                 size: Vector2 {
                     x: SQUARE_SIZE as f32,
@@ -112,193 +133,217 @@ fn main() {
 }
 
 fn draw_game(state: &GameState, rl: &mut RaylibHandle, thread: &RaylibThread) {
-    let mut context = rl.begin_drawing(thread);
+    match state.game_mode {
+        Mode::Windowed {
+            screen_width,
+            screen_height,
+            frames_counter: _,
+            allow_move: _,
+            offset,
+        } => {
+            let mut context = rl.begin_drawing(thread);
 
-    context.clear_background(Color::RAYWHITE);
-    if !state.game_over {
-        //Grid lines
-        for i in 0..=state.screen_width / SQUARE_SIZE {
-            context.draw_line_v(
-                Vector2 {
-                    x: (SQUARE_SIZE * i) as f32 + state.offset.x / 2.0,
-                    y: state.offset.y / 2.0,
-                },
-                Vector2 {
-                    x: (SQUARE_SIZE * i) as f32 + state.offset.x / 2.0,
-                    y: state.screen_height as f32 - state.offset.y / 2.0,
-                },
-                Color::LIGHTGRAY,
-            )
+            context.clear_background(Color::RAYWHITE);
+            if !state.game_over {
+                //Grid lines
+                for i in 0..=screen_width / SQUARE_SIZE {
+                    context.draw_line_v(
+                        Vector2 {
+                            x: (SQUARE_SIZE * i) as f32 + offset.x / 2.0,
+                            y: offset.y / 2.0,
+                        },
+                        Vector2 {
+                            x: (SQUARE_SIZE * i) as f32 + offset.x / 2.0,
+                            y: screen_height as f32 - offset.y / 2.0,
+                        },
+                        Color::LIGHTGRAY,
+                    )
+                }
+
+                for i in 0..=screen_height / SQUARE_SIZE {
+                    context.draw_line_v(
+                        Vector2 {
+                            x: offset.x / 2.0,
+                            y: (SQUARE_SIZE * i) as f32 + offset.y / 2.0,
+                        },
+                        Vector2 {
+                            x: screen_width as f32 - offset.x / 2.0,
+                            y: (SQUARE_SIZE * i) as f32 + offset.y / 2.0,
+                        },
+                        Color::LIGHTGRAY,
+                    )
+                }
+
+                //Snake
+                for i in 0..state.counter_tail {
+                    context.draw_rectangle_v(
+                        state.snake[i].position,
+                        state.snake[i].size,
+                        state.snake[i].color,
+                    );
+                }
+
+                //Fruit
+                context.draw_rectangle_v(state.fruit.position, state.fruit.size, state.fruit.color);
+
+                //Pause screen
+
+                if state.pause {
+                    context.draw_text(
+                        "GAME PAUSED",
+                        (screen_width / 2 - context.measure_text("GAME PAUSED", 40) as usize)
+                            as i32,
+                        (screen_height / 2) as i32 - 40,
+                        40,
+                        Color::GRAY,
+                    );
+                }
+            } else {
+                let msg = "PRESS [ENTER] TO PLAY AGAIN";
+                context.draw_text(
+                    msg,
+                    (screen_width / 2) as i32 - context.measure_text(msg, 20) / 2,
+                    (screen_height / 2 - 40) as i32,
+                    40,
+                    Color::GRAY,
+                );
+            }
         }
-
-        for i in 0..=state.screen_height / SQUARE_SIZE {
-            context.draw_line_v(
-                Vector2 {
-                    x: state.offset.x / 2.0,
-                    y: (SQUARE_SIZE * i) as f32 + state.offset.y / 2.0,
-                },
-                Vector2 {
-                    x: state.screen_width as f32 - state.offset.x / 2.0,
-                    y: (SQUARE_SIZE * i) as f32 + state.offset.y / 2.0,
-                },
-                Color::LIGHTGRAY,
-            )
-        }
-
-        //Snake
-        for i in 0..state.counter_tail {
-            context.draw_rectangle_v(
-                state.snake[i].position,
-                state.snake[i].size,
-                state.snake[i].color,
-            );
-        }
-
-        //Fruit
-        context.draw_rectangle_v(state.fruit.position, state.fruit.size, state.fruit.color);
-
-        //Pause screen
-
-        if state.pause {
-            context.draw_text(
-                "GAME PAUSED",
-                (state.screen_width / 2 - context.measure_text("GAME PAUSED", 40) as usize) as i32,
-                (state.screen_height / 2) as i32 - 40,
-                40,
-                Color::GRAY,
-            );
-        }
-    } else {
-        let msg = "PRESS [ENTER] TO PLAY AGAIN";
-        context.draw_text(
-            msg,
-            (state.screen_width / 2) as i32 - context.measure_text(msg, 20) / 2,
-            (state.screen_height / 2 - 40) as i32,
-            40,
-            Color::GRAY,
-        );
-    }
+        _ => return,
+    };
 }
 
 fn update_game(state: &mut GameState, rl: &mut RaylibHandle) {
     if !state.game_over {
-
         state.game_over = false;
-        if !state.pause {
-            if state.allow_move {
-                match rl.get_key_pressed() {
-                    Some(KeyboardKey::KEY_RIGHT) => {
-                        if state.snake[0].speed.x == 0.0 {
-                            state.snake[0].speed = Vector2 {
-                                x: SQUARE_SIZE as f32,
-                                y: 0.0,
-                            };
+        match state.game_mode.borrow_mut() {
+            Mode::Windowed {
+                screen_width,
+                screen_height,
+                frames_counter,
+                allow_move,
+                offset,
+            } => {
+                if !state.pause {
+                    if *allow_move {
+                        match rl.get_key_pressed() {
+                            Some(KeyboardKey::KEY_RIGHT) => {
+                                if state.snake[0].speed.x == 0.0 {
+                                    state.snake[0].speed = Vector2 {
+                                        x: SQUARE_SIZE as f32,
+                                        y: 0.0,
+                                    };
+                                }
+                               *allow_move = false;
+                            }
+                            Some(KeyboardKey::KEY_LEFT) => {
+                                if state.snake[0].speed.x == 0.0 {
+                                    state.snake[0].speed = Vector2 {
+                                        x: -(SQUARE_SIZE as f32),
+                                        y: 0.0,
+                                    };
+                                }
+                                *allow_move = false;
+                            }
+                            Some(KeyboardKey::KEY_DOWN) => {
+                                if state.snake[0].speed.y == 0.0 {
+                                    state.snake[0].speed = Vector2 {
+                                        x: 0.0,
+                                        y: SQUARE_SIZE as f32,
+                                    };
+                                }
+                                *allow_move = false;
+                            }
+                            Some(KeyboardKey::KEY_UP) => {
+                                if state.snake[0].speed.y == 0.0 {
+                                    state.snake[0].speed = Vector2 {
+                                        x: 0.0,
+                                        y: -(SQUARE_SIZE as f32),
+                                    };
+                                }
+                                *allow_move = false;
+                            }
+                            _ => (),
                         }
-                        state.allow_move = false;
                     }
-                    Some(KeyboardKey::KEY_LEFT) => {
-                        if state.snake[0].speed.x == 0.0 {
-                            state.snake[0].speed = Vector2 {
-                                x: -(SQUARE_SIZE as f32),
-                                y: 0.0,
-                            };
+
+                    for i in 0..state.counter_tail {
+                        state.snake_position[i] = state.snake[i].position;
+                    }
+
+                    if *frames_counter % 10 == 0 {
+                        state.snake[0].position += state.snake[0].speed;
+                        *allow_move = true;
+                        for i in 1..state.counter_tail {
+                            state.snake[i].position = state.snake_position[i - 1];
                         }
-                        state.allow_move = false;
                     }
-                    Some(KeyboardKey::KEY_DOWN) => {
-                        if state.snake[0].speed.y == 0.0 {
-                            state.snake[0].speed = Vector2 {
-                                x: 0.0,
-                                y: SQUARE_SIZE as f32,
-                            };
+
+                    if state.snake[0].position.x > *screen_width as f32 - offset.x
+                        || state.snake[0].position.y > *screen_height as f32 - offset.y
+                        || state.snake[0].position.x < 0.0
+                        || state.snake[0].position.y < 0.0
+                    {
+                        state.game_over = true;
+                    }
+
+                    for i in 1..state.counter_tail {
+                        if state.snake[0].position == state.snake[i].position {
+                            state.game_over = true;
                         }
-                        state.allow_move = false;
                     }
-                    Some(KeyboardKey::KEY_UP) => {
-                        if state.snake[0].speed.y == 0.0 {
-                            state.snake[0].speed = Vector2 {
-                                x: 0.0,
-                                y: -(SQUARE_SIZE as f32),
-                            };
-                        }
-                        state.allow_move = false;
-                    }
-                    _ => (),
-                }
-            }
 
-            for i in 0..state.counter_tail {
-                state.snake_position[i] = state.snake[i].position;
-            }
-
-            if state.frames_counter % 10 == 0 {
-                state.snake[0].position += state.snake[0].speed;
-                state.allow_move = true;
-                for i in 1..state.counter_tail {
-                    state.snake[i].position = state.snake_position[i - 1];
-                }
-            }
-
-            if state.snake[0].position.x > state.screen_width as f32 - state.offset.x
-                || state.snake[0].position.y > state.screen_height as f32 - state.offset.y
-                || state.snake[0].position.x < 0.0
-                || state.snake[0].position.y < 0.0
-            {
-                state.game_over = true;
-            }
-
-            for i in 1..state.counter_tail {
-                if state.snake[0].position == state.snake[i].position {
-                    state.game_over = true;
-                }
-            }
-
-            if !state.fruit.active {
-                state.fruit.active = true;
-                state.fruit.position = Vector2 {
-                    x: (rl
-                        .get_random_value::<f64>(0..(state.screen_width / SQUARE_SIZE - 1) as i32)
-                        * SQUARE_SIZE as f64
-                        + (state.offset.x / 2.0) as f64)
-                        .trunc() as f32,
-                    y: (rl
-                        .get_random_value::<f64>(0..(state.screen_height / SQUARE_SIZE - 1) as i32)
-                        * SQUARE_SIZE as f64
-                        + (state.offset.y / 2.0) as f64)
-                        .trunc() as f32,
-                };
-
-                for mut i in 0..state.counter_tail {
-                    while state.fruit.position == state.snake[i].position {
+                    if !state.fruit.active {
+                        state.fruit.active = true;
                         state.fruit.position = Vector2 {
                             x: (rl.get_random_value::<f64>(
-                                0..(state.screen_width / SQUARE_SIZE - 1) as i32,
+                                0..(*screen_width / SQUARE_SIZE - 1) as i32,
                             ) * SQUARE_SIZE as f64
-                                + (state.offset.x / 2.0) as f64)
+                                + (offset.x / 2.0) as f64)
                                 .trunc() as f32,
                             y: (rl.get_random_value::<f64>(
-                                0..(state.screen_height / SQUARE_SIZE - 1) as i32,
+                                0..(*screen_height / SQUARE_SIZE - 1) as i32,
                             ) * SQUARE_SIZE as f64
-                                + (state.offset.y / 2.0) as f64)
+                                + (offset.y / 2.0) as f64)
                                 .trunc() as f32,
                         };
-                        i = 0;
+
+                        for mut i in 0..state.counter_tail {
+                            while state.fruit.position == state.snake[i].position {
+                                state.fruit.position = Vector2 {
+                                    x: (rl.get_random_value::<f64>(
+                                        0..(*screen_width / SQUARE_SIZE - 1) as i32,
+                                    ) * SQUARE_SIZE as f64
+                                        + (offset.x / 2.0) as f64)
+                                        .trunc() as f32,
+                                    y: (rl.get_random_value::<f64>(
+                                        0..(*screen_height / SQUARE_SIZE - 1) as i32,
+                                    ) * SQUARE_SIZE as f64
+                                        + (offset.y / 2.0) as f64)
+                                        .trunc() as f32,
+                                };
+                                i = 0;
+                            }
+                        }
                     }
+
+                    if state.snake[0].position.x < state.fruit.position.x + state.fruit.size.x
+                        && state.snake[0].position.x + state.snake[0].size.x
+                            > state.fruit.position.x
+                        && state.snake[0].position.y < state.fruit.position.y + state.fruit.size.y
+                        && state.snake[0].position.y + state.snake[0].size.y
+                            > state.fruit.position.y
+                    {
+                        state.snake[state.counter_tail].position =
+                            state.snake_position[state.counter_tail - 1];
+                        state.counter_tail += 1;
+                        state.fruit.active = false;
+                    }
+
+                    *frames_counter += 1;
                 }
-            }
-
-            if state.snake[0].position.x < state.fruit.position.x + state.fruit.size.x
-                && state.snake[0].position.x + state.snake[0].size.x > state.fruit.position.x
-                && state.snake[0].position.y < state.fruit.position.y + state.fruit.size.y
-                && state.snake[0].position.y + state.snake[0].size.y > state.fruit.position.y
-            {
-                state.snake[state.counter_tail].position =
-                    state.snake_position[state.counter_tail - 1];
-                state.counter_tail += 1;
-                state.fruit.active = false;
-            }
-
-            state.frames_counter += 1;
+            },
+            _ => ()
         }
     } else if rl.is_key_pressed(KeyboardKey::KEY_ENTER) {
         *state = GameState::init(
