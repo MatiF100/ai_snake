@@ -4,37 +4,27 @@ use raylib::prelude::*;
 // The following snake game implementation
 // Is based on official raylib example
 // Original code at: https://github.com/raysan5/raylib-games/blob/master/classics/src/snake.c
-const SNAKE_LEN: usize = 256;
 const SQUARE_SIZE: isize = 31;
 
-#[derive(Default, Copy, Clone)]
-struct Snake {
-    size: Vector2,
-    speed: Vector2,
-    color: Color,
-}
-
-#[derive(Default)]
-struct Food {
-    size: Vector2,
-    active: bool,
-    color: Color,
-}
-
 enum Move {
-    FW,
-    BW,
-    LT,
-    RT,
-    PS,
+    TOP,
+    BTM,
+    LFT,
+    RHT,
+    PAS,
+}
+
+struct State {
+    board: Vec<isize>,
+    score: isize,
 }
 enum Mode {
     // Window and Raylib stuff
     Keyboard,
     // Interfacing with external controls
     External {
-        moves: std::sync::mpsc::Receiver<Move>,
-        reward: std::sync::mpsc::Sender<isize>,
+        move_queue: std::sync::mpsc::Receiver<Move>,
+        state_queue: std::sync::mpsc::Sender<State>,
     },
 }
 
@@ -65,6 +55,19 @@ struct GameState<'a> {
 }
 
 impl<'a> GameState<'a> {
+    fn create_threaded() -> (std::sync::mpsc::Sender<Move>,std::sync::mpsc::Receiver<State>){
+        let moves = std::sync::mpsc::channel::<Move>();
+        let states = std::sync::mpsc::channel::<State>();
+
+        std::thread::spawn(move ||{
+            let mut game = Self::init(None);
+            game.control_mode = Mode::External { move_queue: moves.1, state_queue: states.0 };
+            game.run_as_game();
+        });
+
+        (moves.0, states.1)
+
+    }
     fn init(with_window: Option<(&'a mut RaylibHandle, &'a mut RaylibThread)>) -> Self {
         let window = if let Some((h, t)) = with_window {
             Some(WindowData {
@@ -153,7 +156,7 @@ impl<'a> GameState<'a> {
     }
 
     fn update_game(&mut self) {
-        match self.control_mode {
+        match &mut self.control_mode {
             Mode::Keyboard => {
                 if let Some(window) = &mut self.window {
                     if !self.game_over {
@@ -197,7 +200,54 @@ impl<'a> GameState<'a> {
                     panic!("Must use windowed mode for Keyboard control mode");
                 }
             }
-            _ => (),
+            Mode::External {
+                move_queue,
+                state_queue,
+            } => {
+                self.allow_move = true;
+
+                let mut external_state =
+                    vec![0; self.board_size.0 as usize * self.board_size.1 as usize];
+                for snake_part in &self.snake_position {
+                    external_state[self.board_size.0 as usize * snake_part.0 as usize
+                        + snake_part.1 as usize] = 1;
+                }
+                if let Some(pos) = &self.fruit_position {
+                    external_state[pos.0 as usize * self.board_size.0 as usize + pos.1 as usize] =
+                        2;
+                }
+
+                state_queue
+                    .send(State {
+                        board: external_state,
+                        score: self.score,
+                    })
+                    .unwrap();
+
+                match move_queue.recv().unwrap() {
+                    Move::TOP => {
+                        if self.snake_velocity.1 == 0 {
+                            self.snake_velocity = (0, -1);
+                        }
+                    }
+                    Move::BTM => {
+                        if self.snake_velocity.1 == 0 {
+                            self.snake_velocity = (0, 1);
+                        }
+                    }
+                    Move::LFT => {
+                        if self.snake_velocity.0 == 0 {
+                            self.snake_velocity = (-1, 0);
+                        }
+                    }
+                    Move::RHT => {
+                        if self.snake_velocity.0 == 0 {
+                            self.snake_velocity = (1, 0);
+                        }
+                    }
+                    Move::PAS => {}
+                }
+            }
         }
         if self.allow_move {
             let last_valid_position = self.update_snake();
@@ -336,6 +386,8 @@ fn main() {
         .build();
 
     rl.set_target_fps(60);
+    
+    let (send, rcv) =  GameState::create_threaded();
     let mut game_state = GameState::init(Some((&mut rl, &mut thread)));
     game_state.run_as_game();
 
