@@ -1,5 +1,3 @@
-use std::borrow::BorrowMut;
-
 use rand::prelude::*;
 use raylib::prelude::*;
 
@@ -36,20 +34,18 @@ enum Mode {
     // Interfacing with external controls
     External {
         moves: std::sync::mpsc::Receiver<Move>,
+        reward: std::sync::mpsc::Sender<isize>,
     },
 }
 
 struct WindowData<'a> {
     handle: &'a mut RaylibHandle,
     thread: &'a mut RaylibThread,
-    screen_width: usize,
-    screen_height: usize,
     frames_counter: usize,
 
     allow_move: bool,
     offset: Vector2,
     pause: bool,
-    fruit: Food,
 }
 
 struct GameState<'a> {
@@ -68,33 +64,15 @@ struct GameState<'a> {
 }
 
 impl<'a> GameState<'a> {
-    fn init(
-        screen_height: usize,
-        screen_width: usize,
-        with_window: Option<(&'a mut RaylibHandle, &'a mut RaylibThread)>,
-    ) -> Self {
+    fn init(with_window: Option<(&'a mut RaylibHandle, &'a mut RaylibThread)>) -> Self {
         let window = if let Some((h, t)) = with_window {
             Some(WindowData {
                 handle: h,
                 thread: t,
-                screen_width,
-                screen_height,
                 frames_counter: 0,
                 allow_move: false,
-                offset: Vector2 {
-                    x: 0.0,
-                    y: 0.0,
-                },
+                offset: Vector2 { x: 0.0, y: 0.0 },
                 pause: false,
-                fruit: Food {
-                    size: Vector2 {
-                        x: SQUARE_SIZE as f32,
-                        y: SQUARE_SIZE as f32,
-                    },
-                    color: Color::SKYBLUE,
-                    active: false,
-                    ..Default::default()
-                },
             })
         } else {
             None
@@ -114,12 +92,12 @@ impl<'a> GameState<'a> {
             board_size: (16, 16),
         }
     }
-    fn reset(&mut self){
+    fn reset(&mut self) {
         self.game_over = false;
         self.counter_tail = 1;
-        self.snake_position = vec![(0,0)];
+        self.snake_position = vec![(0, 0)];
         self.fruit_position = None;
-        self.snake_velocity = (1,0);
+        self.snake_velocity = (1, 0);
     }
     fn update_game(&mut self) {
         match self.control_mode {
@@ -235,7 +213,7 @@ impl<'a> GameState<'a> {
                         )
                     }
 
-                    for i in 0..=self.board_size.1{
+                    for i in 0..=self.board_size.1 {
                         context.draw_line_v(
                             Vector2 {
                                 x: window.offset.x / 2.0,
@@ -288,7 +266,8 @@ impl<'a> GameState<'a> {
                     if window.pause {
                         context.draw_text(
                             "GAME PAUSED",
-                            ((self.board_size.0 * SQUARE_SIZE) / 2 - context.measure_text("GAME PAUSED", 40) as isize)
+                            ((self.board_size.0 * SQUARE_SIZE) / 2
+                                - context.measure_text("GAME PAUSED", 40) as isize)
                                 as i32,
                             ((self.board_size.1 * SQUARE_SIZE) / 2) as i32 - 40,
                             40,
@@ -299,7 +278,8 @@ impl<'a> GameState<'a> {
                     let msg = "PRESS [ENTER] TO PLAY AGAIN";
                     context.draw_text(
                         msg,
-                        ((self.board_size.0 * SQUARE_SIZE) / 2) as i32 - context.measure_text(msg, 20) / 2,
+                        ((self.board_size.0 * SQUARE_SIZE) / 2) as i32
+                            - context.measure_text(msg, 20) / 2,
                         ((self.board_size.1 * SQUARE_SIZE) / 2 - 40) as i32,
                         40,
                         Color::GRAY,
@@ -310,15 +290,15 @@ impl<'a> GameState<'a> {
         };
     }
 
-    fn run_as_game(&mut self){
-        loop{
-        if let Some(window) = &mut self.window{
-            if window.handle.window_should_close(){
-                return
+    fn run_as_game(&mut self) {
+        loop {
+            if let Some(window) = &mut self.window {
+                if window.handle.window_should_close() {
+                    return;
+                }
             }
-        }
-        self.update_game();
-        self.draw_game();
+            self.update_game();
+            self.draw_game();
         }
     }
 }
@@ -332,7 +312,7 @@ fn main() {
         .build();
 
     rl.set_target_fps(60);
-    let mut game_state = GameState::init(450, 400, Some((&mut rl, &mut thread)));
+    let mut game_state = GameState::init(Some((&mut rl, &mut thread)));
     game_state.run_as_game();
 
     println!("Hello, world!");
