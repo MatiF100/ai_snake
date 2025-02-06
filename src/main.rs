@@ -60,6 +60,8 @@ struct GameState<'a> {
     snake_position: Vec<(isize, isize)>,
     snake_velocity: (isize, isize),
     board_size: (isize, isize),
+
+    score: isize,
 }
 
 impl<'a> GameState<'a> {
@@ -87,6 +89,8 @@ impl<'a> GameState<'a> {
             fruit_position: None,
             snake_velocity: (1, 0),
             board_size: (16, 16),
+
+            score: 0,
         }
     }
     fn reset(&mut self) {
@@ -120,6 +124,7 @@ impl<'a> GameState<'a> {
         }
 
         self.allow_move = false;
+        self.score -= 1;
         last_position
     }
 
@@ -140,6 +145,7 @@ impl<'a> GameState<'a> {
 
         if let Some(pos) = self.fruit_position {
             if self.snake_position[0] == pos {
+                self.score += 20;
                 self.snake_position.push(last_position);
                 self.fruit_position = None;
             }
@@ -269,6 +275,15 @@ impl<'a> GameState<'a> {
                             Color::GREEN,
                         );
                     }
+
+                    //Score
+                    context.draw_text(
+                        &format!("Score: {}", self.score),
+                        (self.board_size.0 as i32 + 1) * SQUARE_SIZE as i32,
+                        SQUARE_SIZE as i32,
+                        40,
+                        Color::GRAY,
+                    );
 
                     //Pause screen
 
