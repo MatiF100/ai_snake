@@ -8,3 +8,6 @@ edition = "2021"
 [dependencies]
 rand = "0.9.0"
 raylib = "5.0.2"
+porcino_core={git="ssh://git@github.com/MatiF100/porcino.git"}
+porcino_data={git="ssh://git@github.com/MatiF100/porcino.git"}
+ndarray = "0.15.6"

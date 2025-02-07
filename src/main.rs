@@ -1,4 +1,7 @@
-use rand::prelude::*;
+use std::{thread, time::Duration};
+
+use porcino_core::network::LayerSettings;
+use rand::{prelude::*, random};
 use raylib::prelude::*;
 
 // The following snake game implementation
@@ -55,18 +58,23 @@ struct GameState<'a> {
 }
 
 impl<'a> GameState<'a> {
-    fn create_threaded() -> (std::sync::mpsc::Sender<Move>,std::sync::mpsc::Receiver<State>){
+    fn create_threaded() -> (
+        std::sync::mpsc::Sender<Move>,
+        std::sync::mpsc::Receiver<State>,
+    ) {
         let moves = std::sync::mpsc::channel::<Move>();
         let states = std::sync::mpsc::channel::<State>();
 
-        std::thread::spawn(move ||{
+        std::thread::spawn(move || {
             let mut game = Self::init(None);
-            game.control_mode = Mode::External { move_queue: moves.1, state_queue: states.0 };
+            game.control_mode = Mode::External {
+                move_queue: moves.1,
+                state_queue: states.0,
+            };
             game.run_as_game();
         });
 
         (moves.0, states.1)
-
     }
     fn init(with_window: Option<(&'a mut RaylibHandle, &'a mut RaylibThread)>) -> Self {
         let window = if let Some((h, t)) = with_window {
@@ -88,7 +96,7 @@ impl<'a> GameState<'a> {
             game_over: false,
             allow_move: false,
 
-            snake_position: vec![(0, 0)],
+            snake_position: vec![(8, 8)],
             fruit_position: None,
             snake_velocity: (1, 0),
             board_size: (16, 16),
@@ -98,8 +106,9 @@ impl<'a> GameState<'a> {
     }
     fn reset(&mut self) {
         self.game_over = false;
-        self.snake_position = vec![(0, 0)];
+        self.snake_position = vec![(8, 8)];
         self.fruit_position = None;
+        self.score = 0;
         self.snake_velocity = (1, 0);
     }
 
@@ -205,6 +214,11 @@ impl<'a> GameState<'a> {
                 state_queue,
             } => {
                 self.allow_move = true;
+                if !self.game_over {
+                } else {
+                    self.reset();
+                    return;
+                }
 
                 let mut external_state =
                     vec![0; self.board_size.0 as usize * self.board_size.1 as usize];
@@ -386,9 +400,68 @@ fn main() {
         .build();
 
     rl.set_target_fps(60);
-    
-    let (send, rcv) =  GameState::create_threaded();
+
+    let (send, rcv) = GameState::create_threaded();
+
     let mut game_state = GameState::init(Some((&mut rl, &mut thread)));
+    let moves = std::sync::mpsc::channel::<Move>();
+    let states = std::sync::mpsc::channel::<State>();
+
+    game_state.control_mode = Mode::External {
+        move_queue: moves.1,
+        state_queue: states.0,
+    };
+    std::thread::spawn(move || {
+        loop {
+        let mut network = porcino_core::network::Network::new(
+            vec![
+                LayerSettings {
+                    neurons: 16 * 16,
+                    activation: porcino_core::network::Activations::Linear,
+                },
+                LayerSettings {
+                    neurons: 150,
+                    activation: porcino_core::network::Activations::Sigmoid,
+                },
+                LayerSettings {
+                    neurons: 80,
+                    activation: porcino_core::network::Activations::Sigmoid,
+                },
+                LayerSettings {
+                    neurons: 5,
+                    activation: porcino_core::network::Activations::Linear,
+                },
+            ],
+            porcino_core::enums::InitializationMethods::Random,
+        );
+            let rc = states.1
+                .recv()
+                .unwrap()
+                .board
+                .iter()
+                .map(|v| *v as f64)
+                .collect::<Vec<_>>();
+
+            let max_r = rc.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
+            let rc = rc.iter().map(|v| v/max_r).collect::<Vec<_>>();
+            network.process_data(&ndarray::Array2::from_shape_vec((rc.len(), 1), rc).unwrap());
+
+            let output = <ndarray::ArrayBase<ndarray::OwnedRepr<f64>, ndarray::Dim<[usize; 2]>> as Clone>::clone(&network.layers.last().unwrap().state).into_raw_vec();
+            let nn = output.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap()).unwrap().0;
+
+            moves
+                .0
+                .send(match nn {
+                    0 => Move::TOP,
+                    1 => Move::BTM,
+                    2 => Move::LFT,
+                    3 => Move::RHT,
+                    _ => Move::PAS,
+                })
+                .unwrap();
+            thread::sleep(Duration::from_millis(10));
+        }
+    });
     game_state.run_as_game();
 
     println!("Hello, world!");
