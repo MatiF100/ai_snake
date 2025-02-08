@@ -221,8 +221,10 @@ impl<'a> GameState<'a> {
                 }
 
                 let mut external_state =
-                    vec![0; self.board_size.0 as usize * self.board_size.1 as usize];
-                for snake_part in &self.snake_position {
+                    vec![9; self.board_size.0 as usize * self.board_size.1 as usize];
+                external_state[self.board_size.0 as usize * self.snake_position[0].0 as usize
+                    + self.snake_position[0].1 as usize] = 0;
+                for snake_part in self.snake_position.iter().skip(1) {
                     external_state[self.board_size.0 as usize * snake_part.0 as usize
                         + snake_part.1 as usize] = 1;
                 }
@@ -231,35 +233,36 @@ impl<'a> GameState<'a> {
                         2;
                 }
 
-                state_queue
-                    .send(State {
-                        board: external_state,
-                        score: self.score,
-                    })
-                    .unwrap();
+                if let Err(_) = state_queue.send(State {
+                    board: external_state,
+                    score: self.score,
+                }) {
+                    return;
+                }
 
-                match move_queue.recv().unwrap() {
-                    Move::TOP => {
+                match move_queue.recv() {
+                    Ok(Move::TOP) => {
                         if self.snake_velocity.1 == 0 {
                             self.snake_velocity = (0, -1);
                         }
                     }
-                    Move::BTM => {
+                    Ok(Move::BTM) => {
                         if self.snake_velocity.1 == 0 {
                             self.snake_velocity = (0, 1);
                         }
                     }
-                    Move::LFT => {
+                    Ok(Move::LFT) => {
                         if self.snake_velocity.0 == 0 {
                             self.snake_velocity = (-1, 0);
                         }
                     }
-                    Move::RHT => {
+                    Ok(Move::RHT) => {
                         if self.snake_velocity.0 == 0 {
                             self.snake_velocity = (1, 0);
                         }
                     }
-                    Move::PAS => {}
+                    Ok(Move::PAS) => {}
+                    _ => {}
                 }
             }
         }
@@ -412,7 +415,6 @@ fn main() {
         state_queue: states.0,
     };
     std::thread::spawn(move || {
-        loop {
         let mut network = porcino_core::network::Network::new(
             vec![
                 LayerSettings {
@@ -434,7 +436,9 @@ fn main() {
             ],
             porcino_core::enums::InitializationMethods::Random,
         );
-            let rc = states.1
+        loop {
+            let rc = states
+                .1
                 .recv()
                 .unwrap()
                 .board
@@ -443,23 +447,48 @@ fn main() {
                 .collect::<Vec<_>>();
 
             let max_r = rc.iter().max_by(|a, b| a.partial_cmp(b).unwrap()).unwrap();
-            let rc = rc.iter().map(|v| v/max_r).collect::<Vec<_>>();
-            network.process_data(&ndarray::Array2::from_shape_vec((rc.len(), 1), rc).unwrap());
+            let nrc = rc.iter().map(|v| v / max_r).collect::<Vec<_>>();
+            network.process_data(&ndarray::Array2::from_shape_vec((rc.len(), 1), nrc.clone()).unwrap());
 
             let output = <ndarray::ArrayBase<ndarray::OwnedRepr<f64>, ndarray::Dim<[usize; 2]>> as Clone>::clone(&network.layers.last().unwrap().state).into_raw_vec();
-            let nn = output.iter().enumerate().max_by(|a, b| a.1.partial_cmp(b.1).unwrap()).unwrap().0;
+            let nn = output
+                .iter()
+                .enumerate()
+                .max_by(|a, b| a.1.partial_cmp(b.1).unwrap())
+                .unwrap()
+                .0;
+
+            let frpos = rc.iter().map(|v| *v as usize).position(|el| el == 2);
+            let hpos = rc.iter().map(|v| *v as usize).position(|el| el == 0);
+
+            let naive = if let Some(frpos) = frpos{
+                let hpos = hpos.unwrap();
+                let hx = hpos / 16;
+                let fx = frpos / 16;
+                let hy = hpos % 16;
+                let fy = frpos % 16;
+
+                if hx > fx {Move::LFT}
+                else if fx > hx {Move::RHT}
+                else if hy > fy {Move::TOP}
+                else if fy > hy {Move::BTM}
+                else {Move::PAS}
+            }else{
+                Move::PAS
+            };
 
             moves
                 .0
-                .send(match nn {
+                /*.send(match nn {
                     0 => Move::TOP,
                     1 => Move::BTM,
                     2 => Move::LFT,
                     3 => Move::RHT,
                     _ => Move::PAS,
-                })
+                })*/
+                .send(naive)
                 .unwrap();
-            thread::sleep(Duration::from_millis(10));
+            thread::sleep(Duration::from_millis(100));
         }
     });
     game_state.run_as_game();
